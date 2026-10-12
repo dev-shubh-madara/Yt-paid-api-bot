@@ -67,6 +67,17 @@ def real_ip(request: Request) -> str:
         return peer or "unknown"
     nets = request.app.state.trusted_nets
     if not nets or not _in(peer_ip, nets):
+        # PaaS hosts (Railway, Render...) put their own proxy in front of us and we
+        # cannot list its IPs. PROXY_HOPS=N means "N proxies we control sit in front":
+        # the real client is the Nth entry from the RIGHT of X-Forwarded-For. Entries
+        # further left are client-supplied and ignored, so spoofing does not work.
+        hops = request.app.state.settings.proxy_hops
+        if hops > 0:
+            parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+            if len(parts) >= hops:
+                ip = _valid_ip(parts[-hops])
+                if ip is not None:
+                    return str(ip)
         return str(peer_ip)
     cf = _valid_ip(request.headers.get("cf-connecting-ip"))
     if cf is not None:

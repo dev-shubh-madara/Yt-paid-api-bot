@@ -272,3 +272,18 @@ async def test_size_limits_headers_docs_and_anon_limit(clerk_env):
         assert (await c.get("/v1/me", headers={"X-API-Key": "myk_x"})).status_code == 401
     async with clerk_env(expose_docs=True) as (c, _):
         assert (await c.get("/docs")).status_code == 200
+
+
+async def test_proxy_hops_for_hosting_platforms(clerk_env):
+    async with clerk_env(proxy_hops=1, clerk_publishable_key="", clerk_secret_key="",
+                         key_creations_per_ip_per_hour=1) as (c, _):
+        # the platform proxy appends the real client as the LAST entry; anything before is spoofable
+        a = await c.post("/v1/keys", json={"owner": "owner1"}, headers={"X-Forwarded-For": "1.1.1.1, 5.5.5.5"})
+        b = await c.post("/v1/keys", json={"owner": "owner2"}, headers={"X-Forwarded-For": "2.2.2.2, 6.6.6.6"})
+        spoof = await c.post("/v1/keys", json={"owner": "owner3"}, headers={"X-Forwarded-For": "9.9.9.9, 5.5.5.5"})
+        assert (a.status_code, b.status_code, spoof.status_code) == (201, 201, 429)
+    async with clerk_env(proxy_hops=0, clerk_publishable_key="", clerk_secret_key="",
+                         key_creations_per_ip_per_hour=1) as (c, _):
+        a = await c.post("/v1/keys", json={"owner": "other1"}, headers={"X-Forwarded-For": "5.5.5.5"})
+        b = await c.post("/v1/keys", json={"owner": "other2"}, headers={"X-Forwarded-For": "6.6.6.6"})
+        assert (a.status_code, b.status_code) == (201, 429)  # header ignored when hops=0

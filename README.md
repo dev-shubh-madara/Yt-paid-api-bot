@@ -49,7 +49,7 @@ In the Clerk dashboard: enable the Google social connection only (turn off email
 
 Best setup: Cloudflare Tunnel (`docker compose --profile tunnel up -d`, `REQUIRE_TRUSTED_PROXY=true`). The origin has no open port or public IP, so nobody can bypass Cloudflare. Or put the VPS behind Cloudflare's proxy and set `TRUST_CLOUDFLARE=true` + `REQUIRE_TRUSTED_PROXY=true` (also firewall the origin to Cloudflare's ranges).
 The real client IP is read from `CF-Connecting-IP` **only** when the TCP peer is trusted, so spoofed headers don't dodge per-IP limits. Also built in: per-IP limits for callers without a key, per-key limits, host allow-list, optional admin IP allow-list, request-size caps, strict security headers/CSP, docs disabled by default, brute-force lockout on the admin token. In Cloudflare also turn on: SSL "Full (strict)", Bot Fight Mode, and a rate-limiting rule on `/v1/keys`.
-On Render/Railway/Koyeb you can't see the platform proxy's IPs, so use `TRUSTED_PROXIES` with their documented ranges, or run behind a tunnel on a VPS instead.
+On Railway/Render/Koyeb set `PROXY_HOPS=1` (and do NOT set `REQUIRE_TRUSTED_PROXY`, `TRUSTED_PROXIES` or `ALLOWED_HOSTS` unless you know the exact values). Without `PROXY_HOPS`, every visitor looks like the platform's proxy and shares one set of per-IP limits.
 
 ## Security notes
 

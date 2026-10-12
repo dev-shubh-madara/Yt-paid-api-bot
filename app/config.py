@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # Forwarded headers (CF-Connecting-IP / X-Forwarded-For) are believed ONLY
     # when the TCP peer is trusted. Cloudflare Tunnel: trusted_proxies=127.0.0.1/32
     # (or your docker network). Cloudflare proxy in front of a VPS: trust_cloudflare=true.
+    # Hosting platforms (Railway/Render/Koyeb): number of platform proxies in front of
+    # the app. 1 = read the client IP from the last X-Forwarded-For entry. Leave 0 on a VPS.
+    proxy_hops: int = 0
     trust_cloudflare: bool = False
     trusted_proxies: str = ""  # comma-separated CIDRs
     # Reject every request that does not come from a trusted proxy (origin lock).
