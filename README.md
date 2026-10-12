@@ -40,6 +40,10 @@ Admin (`X-Admin-Token`): `/admin/stats`, `/admin/keys...` (plan, revoke, activat
 **Gmail:** turn on 2-step verification, create an App Password, and set `IMAP_USER`/`IMAP_PASSWORD`. Use a dedicated mailbox and forward FamPay's emails to it.
 **Important:** FamPay's real email wording and sender are not verified here. Use `/admin/emails` and `/admin/parse-email` to check a real email, then adjust `PAYMENT_SENDERS` and the keyword settings. If emails come through a forwarder and fail the auth check, either whitelist directly or set `REQUIRE_EMAIL_AUTH=false` (less safe).
 
+### Buying a plan from the website
+
+Signed-in users buy plans on **`/portal`**: pick a plan, scan the UPI QR code (or tap **Open UPI app** on a phone), pay with the order's note, and the page switches to "Payment received" by itself as soon as the FamPay e-mail is verified. If someone forgets the note, they can paste the 12-digit UTR instead. The page talks to Google-login protected endpoints (`GET /v1/portal/me`, `POST /v1/portal/orders`, `GET /v1/portal/orders/{id}`, `POST /v1/portal/orders/{id}/claim`), so the raw API key is never needed in the browser. It needs `UPI_ID` set (and the IMAP settings from the payment flow above); without `UPI_ID` the buy buttons stay off.
+
 ## Google login (one key per person)
 
 With `CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY` set, `POST /v1/keys` needs a Clerk session token, and users get their key at **`/portal`** ("Continue with Google"). The server verifies the token's signature, then asks Clerk who the user is and accepts only a *verified Google account on @gmail.com*. Addresses are canonicalised (`j.o.h.n+x@gmail.com` = `john@gmail.com`), so one person gets exactly one key, ever. Lost it? `/portal` → "rotate" gives a new key and kills the old one. A key the admin revoked cannot be re-created.

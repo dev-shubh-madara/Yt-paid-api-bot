@@ -1,17 +1,63 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Get your API key</title><link rel="stylesheet" href="/portal/portal.css"></head>
+<title>Madara YouTube API: keys and plans</title><link rel="stylesheet" href="/portal/portal.css"></head>
 <body><main>
 <h1>Madara YouTube API</h1>
-<p>Sign in with Google to get your API key. One key per Google account.</p>
-<button id="signin">Continue with Google</button>
-<div id="actions" hidden>
-  <p>Signed in as <b id="who"></b></p>
-  <button id="create">Get my API key</button>
-  <button id="rotate" class="alt">I lost my key: rotate it</button>
-  <button id="signout" class="alt">Sign out</button>
-</div>
-<div id="keybox" hidden><code id="key"></code><button id="copy">Copy key</button></div>
+<p class="sub">Your own key, your own plan. Sign in with Google: one key per account.</p>
+
+<section id="signedout">
+  <button id="signin">Continue with Google</button>
+</section>
+
+<section id="app" hidden>
+  <div class="row"><span>Signed in as <b id="who"></b></span><button id="signout" class="link">Sign out</button></div>
+
+  <div id="nokey" class="card" hidden>
+    <h2>Step 1: get your key</h2>
+    <p>Free plan: <span id="freelimit">1000</span> songs per day. You can upgrade any time.</p>
+    <button id="create">Get my API key</button>
+  </div>
+
+  <div id="haskey" class="card" hidden>
+    <div class="row"><h2>Your plan</h2><span id="planchip" class="chip"></span></div>
+    <div class="meter"><div id="meterfill"></div></div>
+    <p id="usage" class="small"></p>
+    <p id="expiry" class="small"></p>
+    <button id="rotate" class="link">I lost my key: rotate it</button>
+  </div>
+
+  <div id="keybox" class="card" hidden>
+    <h2>Your API key</h2>
+    <code id="key"></code>
+    <button id="copy">Copy key</button>
+    <p class="small">Shown only once. Put it in your bot as <b>API_KEY</b>.</p>
+  </div>
+
+  <div id="plansec" hidden>
+    <h2 class="sec">Upgrade</h2>
+    <div id="plans"></div>
+    <p id="paynote" class="small"></p>
+  </div>
+
+  <div id="checkout" class="card" hidden>
+    <div class="row"><h2 id="cotitle">Pay</h2><button id="coclose" class="link">Close</button></div>
+    <img id="qr" alt="UPI QR code" width="220" height="220">
+    <p class="small center">Scan with any UPI app, or tap the button on your phone.</p>
+    <a id="upilink" class="btn" href="#">Open UPI app</a>
+    <dl>
+      <dt>Pay to</dt><dd><code id="upiid"></code><button id="copyupi" class="mini">Copy</button></dd>
+      <dt>Amount</dt><dd><b id="amount"></b></dd>
+      <dt>Note (important)</dt><dd><code id="code"></code><button id="copycode" class="mini">Copy</button></dd>
+    </dl>
+    <p class="small">Type the note exactly in the payment remark. Your plan turns on by itself within a minute.</p>
+    <div id="costatus" class="status" role="status"></div>
+    <details><summary>Forgot the note? Enter the UTR instead</summary>
+      <input id="utr" inputmode="numeric" maxlength="12" placeholder="12-digit UTR from your UPI app">
+      <button id="sendutr" class="alt">Submit UTR</button>
+    </details>
+  </div>
+</section>
+
 <div id="msg" role="status"></div>
 <script src="/portal/portal.js" data-pk="__PK__" data-domain="__DOMAIN__"></script>
 </main></body></html>

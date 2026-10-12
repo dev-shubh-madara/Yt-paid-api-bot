@@ -1,8 +1,11 @@
 import html
+import time
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import FileResponse, HTMLResponse
+import segno
 from pydantic import BaseModel, Field
 
 from ..deps import AuthedKey, client_ip, require_key
@@ -136,6 +139,92 @@ async def rotate_my_key(request: Request):
         raise ApiError(404, "no_key", "No active key for this account. Create one first.")
     raw, rec = await st.keys.rotate(rec.id)
     return _key_response(raw, rec, st)
+
+
+# ── Buying a plan from the web page (Google-login protected) ──────────────
+_IDENT_TTL = 60.0
+
+
+async def _portal_identity(request: Request):
+    """The signed-in Google account, with a short cache so page refreshes do not hammer Clerk."""
+    st = request.app.state
+    if not st.clerk.enabled:
+        raise ApiError(404, "not_available", "Google login is not enabled on this server.")
+    ip = client_ip(request)
+    ok, retry = st.limiter.allow(f"portal:{ip}", 60, 60)
+    if not ok:
+        raise ApiError(429, "rate_limited", "Too many requests. Slow down a little.", headers={"Retry-After": str(retry)})
+    uid = await st.clerk.verify_session(_bearer(request))
+    cache = st.__dict__.setdefault("_portal_ident", {})
+    hit = cache.get(uid)
+    now = time.monotonic()
+    if hit and now - hit[1] < _IDENT_TTL:
+        return hit[0]
+    ident = await st.clerk.google_identity(uid)
+    if len(cache) > 2000:
+        cache.clear()
+    cache[uid] = (ident, now)
+    return ident
+
+
+async def _portal_key(request: Request):
+    ident = await _portal_identity(request)
+    rec = await request.app.state.keys.active_by_owner("g:" + ident.email)
+    if rec is None:
+        raise ApiError(404, "no_key", "Create your API key first, then you can buy a plan.")
+    return ident, rec
+
+
+def _upi_uri(upi_id: str, payee: str, amount: float, note: str) -> str:
+    q = {"pa": upi_id, "pn": payee or "API", "am": f"{amount:.2f}", "cu": "INR", "tn": note}
+    return "upi://pay?" + urlencode(q, quote_via=quote, safe="@")
+
+
+def _portal_order(order: dict) -> dict:
+    """Add the QR code and a one-tap UPI link to a pending order."""
+    pay = order.get("pay")
+    if pay and pay.get("upi_id"):
+        uri = _upi_uri(pay["upi_id"], pay.get("payee_name") or "", float(pay["amount_inr"]), pay["note"])
+        pay["upi_uri"] = uri
+        pay["qr"] = segno.make(uri, error="m").svg_data_uri(scale=6, border=2, dark="#000000", light="#ffffff")
+    return order
+
+
+@router.get("/v1/portal/me")
+async def portal_me(request: Request):
+    st = request.app.state
+    ident = await _portal_identity(request)
+    rec = await st.keys.active_by_owner("g:" + ident.email)
+    out = {"email": ident.email, "has_key": rec is not None, "payments_enabled": bool(st.settings.upi_id)}
+    if rec is not None:
+        plan = st.keys.effective_plan(rec)
+        out["key"] = rec.public(st.clock, plan)
+        out["usage"] = await st.keys.usage_info(rec)
+        orders = await st.db.fetchall(
+            "SELECT * FROM orders WHERE key_id=? ORDER BY created_at DESC LIMIT 5", (rec.id,))
+        out["orders"] = [st.payments.order_view(o) for o in orders]
+    return out
+
+
+@router.post("/v1/portal/orders", status_code=201)
+async def portal_create_order(body: OrderCreate, request: Request):
+    st = request.app.state
+    if not st.settings.upi_id:
+        raise ApiError(503, "payments_disabled", "Buying plans is not switched on yet. Contact the owner.")
+    _, rec = await _portal_key(request)
+    return _portal_order(await st.payments.create_order(rec, body.plan))
+
+
+@router.get("/v1/portal/orders/{order_id}")
+async def portal_get_order(order_id: str, request: Request):
+    _, rec = await _portal_key(request)
+    return _portal_order(await request.app.state.payments.get_order(rec, order_id))
+
+
+@router.post("/v1/portal/orders/{order_id}/claim")
+async def portal_claim_order(order_id: str, body: ClaimBody, request: Request):
+    _, rec = await _portal_key(request)
+    return _portal_order(await request.app.state.payments.claim(rec, order_id, body.utr))
 
 
 _STATIC = Path(__file__).resolve().parent.parent / "static"
