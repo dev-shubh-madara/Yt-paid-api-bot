@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Get your API key</title><link rel="stylesheet" href="/portal/portal.css"></head>
+<body><main>
+<h1>Madara YouTube API</h1>
+<p>Sign in with Google to get your API key. One key per Google account.</p>
+<button id="signin">Continue with Google</button>
+<div id="actions" hidden>
+  <p>Signed in as <b id="who"></b></p>
+  <button id="create">Get my API key</button>
+  <button id="rotate" class="alt">I lost my key: rotate it</button>
+  <button id="signout" class="alt">Sign out</button>
+</div>
+<div id="keybox" hidden><code id="key"></code><button id="copy">Copy key</button></div>
+<div id="msg" role="status"></div>
+<script src="/portal/portal.js" data-pk="__PK__" data-domain="__DOMAIN__"></script>
+</main></body></html>

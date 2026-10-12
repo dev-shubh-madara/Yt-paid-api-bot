@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    # With the tunnel below, do NOT publish a port: the API is then unreachable
+    # except through Cloudflare. For a plain VPS, uncomment the next line instead.
+    # ports: ["8000:8000"]
+    expose: ["8000"]
+    volumes: ["ytapi-data:/data"]
+    restart: unless-stopped
+
+  # Cloudflare Tunnel: outbound-only connection, your server's IP stays hidden.
+  # Start with:  docker compose --profile tunnel up -d
+  # In the Cloudflare dashboard (Zero Trust > Networks > Tunnels) point your hostname at http://api:8000
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on: [api]
+    restart: unless-stopped
+volumes:
+  ytapi-data:

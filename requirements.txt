@@ -1,0 +1,9 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+yt-dlp[default]>=2026.8.19
+aiosqlite>=0.20
+httpx>=0.27
+pydantic>=2.7
+pydantic-settings>=2.3
+tzdata
+PyJWT[crypto]>=2.8
