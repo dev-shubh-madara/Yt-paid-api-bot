@@ -8,6 +8,7 @@ j.o.h.n+1@gmail.com and john@gmail.com count as the same person.
 """
 
 import base64
+import logging
 import time
 from dataclasses import dataclass
 
@@ -15,6 +16,8 @@ import httpx
 import jwt
 
 from .errors import ApiError
+
+log = logging.getLogger("ytapi.clerk")
 
 
 def domain_from_publishable_key(pk: str) -> str:
@@ -84,6 +87,7 @@ class ClerkAuth:
         try:
             header = jwt.get_unverified_header(token)
             if header.get("alg") != "RS256":
+                log.warning("login rejected: token alg is %r, not RS256", header.get("alg"))
                 raise bad
             kid = header.get("kid")
             try:
@@ -94,6 +98,7 @@ class ClerkAuth:
                 raise ApiError(503, "login_unavailable", "Login provider is unreachable. Try again shortly.")
             key = self._jwks.get(kid)
             if key is None:
+                log.warning("login rejected: signing key %r not found in Clerk JWKS for %s", kid, self.issuer)
                 raise bad
             claims = jwt.decode(
                 token,
@@ -105,14 +110,18 @@ class ClerkAuth:
             )
         except ApiError:
             raise
-        except jwt.PyJWTError:
+        except jwt.PyJWTError as e:
+            # Never log the token itself, only why it was refused.
+            log.warning("login rejected: %s: %s (expected issuer %s)", type(e).__name__, e, self.issuer)
             raise bad
         # 'azp' is the page origin that asked for the token; reject tokens minted elsewhere.
         allowed = self.s.clerk_authorized_party_list
         azp = claims.get("azp")
         if allowed and azp and azp not in allowed:
+            log.warning("login rejected: token origin (azp) %r is not in CLERK_AUTHORIZED_PARTIES %r", azp, allowed)
             raise bad
         if claims.get("sts") == "pending":  # sign-in not finished (e.g. missing MFA step)
+            log.warning("login rejected: session is still pending")
             raise bad
         return str(claims["sub"])
 
@@ -127,6 +136,7 @@ class ClerkAuth:
         except httpx.HTTPError:
             raise ApiError(503, "login_unavailable", "Login provider is unreachable. Try again shortly.")
         if r.status_code != 200:
+            log.warning("Clerk user lookup failed with HTTP %s (check CLERK_SECRET_KEY belongs to the same app)", r.status_code)
             raise ApiError(401, "invalid_login", "Could not confirm your account. Sign in again.")
         u = r.json()
         if u.get("banned") or u.get("locked"):
