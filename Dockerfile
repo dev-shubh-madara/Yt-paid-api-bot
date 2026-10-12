@@ -8,9 +8,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY app ./app
-RUN useradd -m app && mkdir /data && chown app /data
+RUN useradd -m app && mkdir -p /data && chown app /data
 USER app
-VOLUME /data
 EXPOSE 8000
 # ONE worker on purpose: rate limiter is in-memory and the DB is SQLite.
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
