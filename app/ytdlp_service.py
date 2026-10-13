@@ -393,5 +393,35 @@ class Extractor:
         self._searches.set(key, result, time.time() + self.s.search_cache_seconds)
         return result
 
+    # ── related songs (YouTube Mix / radio) ───────────────────────────────
+    def _related_blocking(self, video_id: str, limit: int) -> list[dict]:
+        opts = self._opts(extract_flat=True, noplaylist=False, playlistend=limit + 1)
+        url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return list((info or {}).get("entries") or [])
+
+    async def related(self, video_id: str, limit: int = 25) -> list[dict]:
+        """Songs YouTube's own radio plays after this one. Metadata only, never counted."""
+        limit = max(1, min(int(limit), 50))
+        key = ("related", video_id, limit)
+        cached = self._searches.get(key)
+        if cached is not None:
+            return cached
+
+        async def work():
+            entries = await self._run(self._related_blocking, video_id, limit)
+            seen, tracks = {video_id}, []
+            for e in entries:
+                t = _entry_to_track(e or {})
+                if t and t["id"] not in seen:
+                    seen.add(t["id"])
+                    tracks.append(t)
+            tracks = tracks[:limit]
+            self._searches.set(key, tracks, time.time() + self.s.search_cache_seconds)
+            return tracks
+
+        return await self._once(key, work)
+
     def shutdown(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)

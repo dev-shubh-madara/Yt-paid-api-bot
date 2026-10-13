@@ -157,3 +157,17 @@ async def test_admin_can_reset_usage_and_see_stats(api):
     assert stats["plays_today"] == 1 and stats["keys_total"] == 1
     r = await api.http.post(f"/admin/keys/{kid}/reset-usage", headers=api.admin)
     assert r.json()["usage"]["used_today"] == 0
+
+
+async def test_related_returns_radio_without_using_the_daily_limit(api):
+    key = await api.new_key()
+    r = await api.http.get("/v1/related", params={"id": "dQw4w9WgXcQ", "limit": 10}, headers=api.h(key))
+    assert r.status_code == 200
+    ids = [t["id"] for t in r.json()["results"]]
+    assert "dQw4w9WgXcQ" not in ids and len(ids) == len(set(ids)) == 3
+    me = (await api.http.get("/v1/me", headers=api.h(key))).json()
+    assert me["usage"]["used_today"] == 0
+    bad = await api.http.get("/v1/related", headers=api.h(key))
+    assert bad.status_code == 422
+    nokey = await api.http.get("/v1/related", params={"id": "dQw4w9WgXcQ"})
+    assert nokey.status_code == 401

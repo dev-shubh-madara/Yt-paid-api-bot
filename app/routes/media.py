@@ -51,6 +51,23 @@ async def track(
     return await ex.track(vid)
 
 
+@router.get("/v1/related")
+async def related(
+    request: Request,
+    id: str | None = Query(None, description="YouTube video id"),
+    url: str | None = Query(None, description="YouTube link"),
+    limit: int = Query(25, ge=1, le=50),
+    auth: AuthedKey = Depends(require_key),
+):
+    """Songs that fit after this one (YouTube's own radio). Metadata only: it does NOT
+    use up a song of the daily limit. Meant for autoplay."""
+    vid = _pick_video_id(id, url)
+    if vid is None:
+        raise ApiError(422, "missing_query", "Provide one of: id or url.")
+    results = await request.app.state.extractor.related(vid, limit)
+    return {"id": vid, "count": len(results), "results": results}
+
+
 @router.get("/v1/playlist")
 async def playlist(
     request: Request,

@@ -153,6 +153,11 @@ class FakeExtractor(Extractor):
             for i, vid in enumerate(ids)
         ] + ([{"id": None, "title": "junk entry"}] if limit > 3 else [])
 
+    def _related_blocking(self, video_id: str, limit: int) -> list[dict]:
+        self.search_calls.append(f"related:{video_id}")
+        ids = [video_id, VID_A, VID_B, VID_C]  # the seed comes back first, like the real radio
+        return [{"id": v, "title": f"Mix {v}", "duration": 190, "channel": "Chan"} for v in ids] + [{"id": None}]
+
     def _playlist_blocking(self, list_id: str, limit: int) -> dict:
         return {
             "title": "Test Playlist",
