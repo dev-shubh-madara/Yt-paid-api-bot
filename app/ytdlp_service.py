@@ -6,6 +6,7 @@ what makes repeat plays near-instant.
 """
 
 import asyncio
+import base64
 import logging
 import re
 import shutil
@@ -20,6 +21,7 @@ import yt_dlp
 
 from .config import Settings
 from .errors import MediaError
+from .mirrors import Mirrors
 from .utils import fmt_duration
 
 log = logging.getLogger("ytapi.ytdlp")
@@ -81,6 +83,10 @@ def parse_list_ref(value: str) -> str | None:
     candidate = (parse_qs(found[0].query).get("list") or [None])[0]
     return candidate if candidate and LIST_ID_FULL_RE.match(candidate) else None
 
+
+# YouTube checks each player client differently: when one is told to sign in, the next often is not.
+PLAYER_CLIENTS = ("tv", "web_safari", "mweb", "android_vr", "ios")
+BLOCKED = ("sign in to confirm", "not a bot", "sign in", "cookies", "po token", "requested format is not available")
 
 AUDIO_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
 VIDEO_FORMAT = (
@@ -196,12 +202,22 @@ class Extractor:
         self._searches = _TTLCache(2000)
         self._inflight: dict[object, asyncio.Future] = {}
         self._cookie_copy: str | None = None
-        if settings.ytdlp_cookies_file:
-            # yt-dlp writes cookies back on exit; work on a private copy.
-            dst = Path(settings.data_dir) / "cookies.txt"
+        self.mirrors = Mirrors() if settings.mirror_fallback else None
+        # yt-dlp writes cookies back on exit; work on a private copy.
+        dst = Path(settings.data_dir) / "cookies.txt"
+        if settings.ytdlp_cookies_file and Path(settings.ytdlp_cookies_file).is_file():
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(settings.ytdlp_cookies_file, dst)
             self._cookie_copy = str(dst)
+        elif settings.ytdlp_cookies_b64.strip() or settings.ytdlp_cookies_text.strip():
+            try:
+                text = (base64.b64decode(settings.ytdlp_cookies_b64.strip()).decode("utf8")
+                        if settings.ytdlp_cookies_b64.strip() else settings.ytdlp_cookies_text.replace("\\n", "\n"))
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_text(text, encoding="utf8")
+                self._cookie_copy = str(dst)
+            except Exception:
+                log.exception("YTDLP_COOKIES_B64 / YTDLP_COOKIES_TEXT could not be read; continuing without cookies")
 
     # ── yt-dlp options ────────────────────────────────────────────────────
     def _opts(self, **extra) -> dict:
@@ -283,8 +299,24 @@ class Extractor:
     # ── single video ──────────────────────────────────────────────────────
     def _stream_blocking(self, video_id: str, kind: str) -> dict:
         fmt = AUDIO_FORMAT if kind == "audio" else VIDEO_FORMAT
-        with yt_dlp.YoutubeDL(self._opts(format=fmt)) as ydl:
-            return ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        # a client list chosen by the owner is used as given; otherwise try them one by one
+        clients = [[c] for c in PLAYER_CLIENTS] if not self.s.player_client_list else [self.s.player_client_list]
+        last: Exception | None = None
+        for client in clients:
+            args = {"extractor_args": {"youtube": {"player_client": client}}}
+            try:
+                with yt_dlp.YoutubeDL(self._opts(format=fmt, **args)) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                if info and (info.get("url") or info.get("formats") or info.get("requested_formats")):
+                    return info
+            except Exception as e:
+                if not any(k in str(e).lower() for k in BLOCKED):
+                    raise  # private, removed, age-restricted...: another client will not change that
+                last = e
+        if last is not None:
+            raise last
+        raise MediaError(502, "extraction_failed", "Could not get this video from YouTube.")
 
     def _to_stream_info(self, video_id: str, kind: str, info: dict) -> StreamInfo:
         if not info:
@@ -349,7 +381,16 @@ class Extractor:
             return cached
 
         async def work():
-            raw = await self._run(self._stream_blocking, video_id, kind)
+            try:
+                raw = await self._run(self._stream_blocking, video_id, kind)
+            except MediaError as e:
+                # YouTube is blocking this host: let the public mirrors answer instead of failing the song
+                if e.code not in ("youtube_bot_check", "extraction_failed", "youtube_rate_limited", "extraction_timeout") or self.mirrors is None:
+                    raise
+                raw = await self.mirrors.stream(video_id, kind)
+                if raw is None:
+                    raise e
+                log.warning("served %s from a public mirror (%s)", video_id, e.code)
             si = self._to_stream_info(video_id, kind, raw)
             self._streams.set(key, si, si.expires_at)
             return si
@@ -425,3 +466,8 @@ class Extractor:
 
     def shutdown(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
+        if self.mirrors is not None:
+            try:
+                asyncio.get_running_loop().create_task(self.mirrors.close())
+            except RuntimeError:
+                pass

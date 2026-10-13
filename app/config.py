@@ -90,7 +90,10 @@ class Settings(BaseSettings):
     ytdlp_workers: int = 8
     ytdlp_js_runtimes: str = "deno,node"  # YouTube needs a JS runtime for yt-dlp
     ytdlp_cookies_file: str = ""  # optional, only if YouTube asks to "sign in"
+    ytdlp_cookies_b64: str = ""  # cookies.txt as base64 (easy on Railway, no file upload needed)
+    ytdlp_cookies_text: str = ""  # or the cookies.txt content itself (use \n for new lines)
     ytdlp_proxy: str = ""  # optional; stream proxying uses it too
+    mirror_fallback: bool = True  # public Piped/Invidious servers when YouTube blocks this host
     ytdlp_player_clients: str = ""  # optional, e.g. "tv,android"
     url_cache_seconds: int = 3300  # how long a resolved stream URL is reused
     search_cache_seconds: int = 300
