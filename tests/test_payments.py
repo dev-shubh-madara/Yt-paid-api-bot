@@ -193,7 +193,7 @@ async def test_claim_first_then_email_arrives(api):
     key, order = await make_order(api, plan="p2000")
     r = await api.http.post(f"/v1/orders/{order['order_id']}/claim", json={"utr": "712345678901"}, headers=api.h(key))
     assert r.status_code == 200 and r.json()["status"] == "pending"
-    assert "payment e-mail arrives" in r.json()["message"]
+    assert "checking for your payment" in r.json()["message"]
     mail = build_email(body="received ₹29 UTR 712345678901 no note")
     res = await api.st.payments.handle_email(mail)
     assert res["result"] == "matched"
@@ -297,3 +297,18 @@ async def test_many_simultaneous_orders_get_unique_codes(api):
     rs = await asyncio.gather(*[api.http.post("/v1/orders", json={"plan": "p2000"}, headers=api.h(k)) for k in keys])
     codes = {r.json()["code"] for r in rs}
     assert len(codes) == 20
+
+
+async def test_claim_checks_the_mailbox_immediately(api):
+    """FamPay mails carry no note: the UTR claim itself must trigger the mailbox check."""
+    key, order = await make_order(api, plan="p2000")
+    mail = build_email(body="received ₹29 from Rahul. UTR 555000111222")
+
+    class FakePoller:
+        async def poll_soon(self):
+            await api.st.payments.handle_email(mail)
+
+    api.st.payments.poller = FakePoller()
+    r = await api.http.post(f"/v1/orders/{order['order_id']}/claim", json={"utr": "555000111222"}, headers=api.h(key))
+    assert r.status_code == 200 and r.json()["status"] == "paid"
+    assert (await usage(api, key))["plan"] == "p2000"

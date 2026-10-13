@@ -28,6 +28,7 @@ class PaymentService:
         self.keys = keys
         self.clock = clock
         self.s = settings
+        self.poller = None  # set by main.py when IMAP is on; lets a UTR claim check the mailbox right away
 
     # ── presentation ──────────────────────────────────────────────────────
     def order_view(self, row) -> dict:
@@ -52,10 +53,10 @@ class PaymentService:
                 "amount_inr": _rupees(row["amount_paise"]),
                 "note": row["code"],
                 "instructions": (
-                    f"Pay exactly ₹{row['amount_paise'] / 100:g} to the UPI ID above and type "
-                    f"{row['code']} in the payment note/remark. Your plan activates within a "
-                    "minute. If you forgot the note, send the 12-digit UTR to "
-                    f"POST /v1/orders/{row['id']}/claim."
+                    f"Pay exactly ₹{row['amount_paise'] / 100:g} to the UPI ID above. FamPay's payment "
+                    "e-mail does not carry a note, so after paying enter the 12-digit UTR / reference "
+                    f"number from your UPI app (POST /v1/orders/{row['id']}/claim). Your plan activates "
+                    "as soon as that payment is found in the mailbox."
                 ),
             }
         return view
@@ -245,8 +246,19 @@ class PaymentService:
                 await t.execute("UPDATE orders SET claimed_utr=? WHERE id=?", (utr, order_id))
             row = await t.fetchone("SELECT * FROM orders WHERE id=?", (order_id,))
         view = self.order_view(row)
+        if view["status"] == "pending" and self.poller is not None:
+            # Look in the mailbox right now instead of waiting for the next poll.
+            try:
+                await self.poller.poll_soon()
+            except Exception:
+                log.warning("immediate mailbox check failed", exc_info=True)
+            row = await self.db.fetchone("SELECT * FROM orders WHERE id=?", (order_id,))
+            view = self.order_view(row)
         if view["status"] == "pending":
-            view["message"] = "UTR saved. Your plan activates as soon as the payment e-mail arrives."
+            view["message"] = (
+                "UTR saved. We are checking for your payment; the plan activates automatically "
+                "as soon as the payment e-mail shows up (usually within a minute)."
+            )
         return view
 
     # ── admin ─────────────────────────────────────────────────────────────

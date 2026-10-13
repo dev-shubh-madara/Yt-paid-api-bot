@@ -33,8 +33,8 @@ Admin (`X-Admin-Token`): `/admin/stats`, `/admin/keys...` (plan, revoke, activat
 ## Payment flow
 
 1. User calls `POST /v1/orders` and gets a code like `MYTXZDRFW`.
-2. User pays the exact amount to your FamPay UPI ID with the code in the note.
-3. The IMAP poller reads FamPay's email (read-only), checks the sender and DKIM/DMARC, parses amount/UTR/code, and activates the plan. Paying without the note works too: the user sends the 12-digit UTR to `/claim`.
+2. User pays the exact amount to your FamPay UPI ID, then enters the 12-digit UTR (FamPay's e-mail carries no note, so the UTR is the proof).
+3. The IMAP poller reads FamPay's email (read-only), checks the sender and DKIM/DMARC, parses amount/UTR/code, and activates the plan. Submitting the UTR to `/claim` also triggers an immediate mailbox check; a payment that arrived earlier is matched at once. A note, if present, still matches automatically.
 4. Underpaid is rejected, overpaid is accepted, and you can always approve manually with the admin endpoint.
 
 **Gmail:** turn on 2-step verification, create an App Password, and set `IMAP_USER`/`IMAP_PASSWORD`. Use a dedicated mailbox and forward FamPay's emails to it.
@@ -42,7 +42,7 @@ Admin (`X-Admin-Token`): `/admin/stats`, `/admin/keys...` (plan, revoke, activat
 
 ### Buying a plan from the website
 
-Signed-in users buy plans on **`/portal`**: pick a plan, scan the UPI QR code (or tap **Open UPI app** on a phone), pay with the order's note, and the page switches to "Payment received" by itself as soon as the FamPay e-mail is verified. If someone forgets the note, they can paste the 12-digit UTR instead. The page talks to Google-login protected endpoints (`GET /v1/portal/me`, `POST /v1/portal/orders`, `GET /v1/portal/orders/{id}`, `POST /v1/portal/orders/{id}/claim`), so the raw API key is never needed in the browser. It needs `UPI_ID` set (and the IMAP settings from the payment flow above); without `UPI_ID` the buy buttons stay off.
+Signed-in users buy plans on **`/portal`**: pick a plan, scan the UPI QR code (or tap **Open UPI app** on a phone), pay, enter the UTR and press **Verify payment**, and the page switches to "Payment received" by itself as soon as the FamPay e-mail is verified. The page talks to Google-login protected endpoints (`GET /v1/portal/me`, `POST /v1/portal/orders`, `GET /v1/portal/orders/{id}`, `POST /v1/portal/orders/{id}/claim`), so the raw API key is never needed in the browser. It needs `UPI_ID` set (and the IMAP settings from the payment flow above); without `UPI_ID` the buy buttons stay off.
 
 ## Google login (one key per person)
 

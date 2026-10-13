@@ -47,13 +47,14 @@
     <dl>
       <dt>Pay to</dt><dd><code id="upiid"></code><button id="copyupi" class="mini">Copy</button></dd>
       <dt>Amount</dt><dd><b id="amount"></b></dd>
-      <dt>Note (important)</dt><dd><code id="code"></code><button id="copycode" class="mini">Copy</button></dd>
     </dl>
-    <p class="small">Type the note exactly in the payment remark. Your plan turns on by itself within a minute.</p>
+    <p class="small"><b>Step 1.</b> Pay exactly this amount. <b>Step 2.</b> Copy the 12-digit <b>UTR / reference number</b> from your UPI app and enter it below. Your plan turns on by itself as soon as the payment is found.</p>
+    <input id="utr" inputmode="numeric" maxlength="12" placeholder="12-digit UTR from your UPI app">
+    <button id="sendutr">Verify payment</button>
     <div id="costatus" class="status" role="status"></div>
-    <details><summary>Forgot the note? Enter the UTR instead</summary>
-      <input id="utr" inputmode="numeric" maxlength="12" placeholder="12-digit UTR from your UPI app">
-      <button id="sendutr" class="alt">Submit UTR</button>
+    <details><summary>Payment note (optional)</summary>
+      <dl><dt>Note</dt><dd><code id="code"></code><button id="copycode" class="mini">Copy</button></dd></dl>
+      <p class="small">The note is filled in for you when you use the button above. Entering the UTR is what verifies the payment.</p>
     </details>
   </div>
 </section>

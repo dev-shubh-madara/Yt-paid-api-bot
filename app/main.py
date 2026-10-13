@@ -80,6 +80,7 @@ def create_app(settings: Settings | None = None, imap_factory=None) -> FastAPI:
             else:
                 kwargs = {"imap_factory": imap_factory} if imap_factory else {}
                 app.state.poller = ImapPoller(settings, db, app.state.payments, clock, **kwargs)
+                app.state.payments.poller = app.state.poller
                 task = asyncio.create_task(app.state.poller.run_forever())
         try:
             yield

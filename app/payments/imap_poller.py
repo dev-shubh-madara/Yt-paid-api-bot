@@ -9,6 +9,7 @@ Message-ID, so a restart never double-credits a payment.
 import asyncio
 import imaplib
 import logging
+import time
 from datetime import timedelta
 
 from ..config import Settings
@@ -38,6 +39,8 @@ class ImapPoller:
         self._last_uid: int | None = None
         self.last_ok_at: int | None = None
         self.last_error: str | None = None
+        self._lock = asyncio.Lock()  # background loop and on-demand checks never overlap
+        self._last_poll_ts = 0.0
 
     # ── blocking IMAP work (runs in a thread) ─────────────────────────────
     def _connect(self):
@@ -112,8 +115,20 @@ class ImapPoller:
             (f"{self._uidvalidity or ''}:{self._last_uid or 0}",),
         )
 
+    async def poll_soon(self, min_gap: float = 5.0) -> int:
+        """On-demand check (e.g. right after a user submits a UTR). Skipped if the
+        mailbox was polled in the last `min_gap` seconds, so it cannot be spammed."""
+        if time.monotonic() - self._last_poll_ts < min_gap:
+            return 0
+        return await self.poll_once()
+
     async def poll_once(self) -> int:
         """Fetch and process new mail. Returns how many e-mails were handled."""
+        async with self._lock:
+            self._last_poll_ts = time.monotonic()
+            return await self._poll_once()
+
+    async def _poll_once(self) -> int:
         try:
             validity, batch, initial, high = await asyncio.to_thread(
                 self._fetch_new, self._last_uid, self._uidvalidity
