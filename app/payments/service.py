@@ -225,10 +225,19 @@ class PaymentService:
             if not self._matchable(order):
                 raise ApiError(410, "order_expired", "This order has expired. Create a new one.")
 
+            # One UTR, one use. A UTR already attached to a paid order, or to any order of
+            # another account, can never be used again.
+            used = await t.fetchone("SELECT id FROM orders WHERE claimed_utr=? AND status='paid' AND id<>?", (utr, order_id))
+            if used:
+                raise ApiError(409, "utr_used", "That payment was already used for an order.")
             payment = await t.fetchone("SELECT * FROM payments WHERE utr=?", (utr,))
             if payment is not None:
                 if payment["status"] == "matched":
                     raise ApiError(409, "utr_used", "That payment was already used for an order.")
+                if payment["order_id"] and payment["order_id"] != order_id:
+                    owner = await t.fetchone("SELECT key_id FROM orders WHERE id=?", (payment["order_id"],))
+                    if owner is None or owner["key_id"] != key.id:
+                        raise ApiError(409, "utr_used", "That payment belongs to another order.")
                 if payment["amount_paise"] < order["amount_paise"]:
                     raise ApiError(
                         402,
@@ -239,7 +248,7 @@ class PaymentService:
                 await self._settle(t, order, payment["id"], "claimed by utr")
             else:
                 clash = await t.fetchone(
-                    "SELECT id FROM orders WHERE claimed_utr=? AND status='pending' AND id<>?", (utr, order_id)
+                    "SELECT id FROM orders WHERE claimed_utr=? AND status IN ('pending','paid') AND id<>?", (utr, order_id)
                 )
                 if clash:
                     raise ApiError(409, "utr_in_use", "That UTR is already attached to another order.")

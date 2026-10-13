@@ -312,3 +312,23 @@ async def test_claim_checks_the_mailbox_immediately(api):
     r = await api.http.post(f"/v1/orders/{order['order_id']}/claim", json={"utr": "555000111222"}, headers=api.h(key))
     assert r.status_code == 200 and r.json()["status"] == "paid"
     assert (await usage(api, key))["plan"] == "p2000"
+
+
+async def test_a_utr_can_only_be_used_once_ever(api):
+    """Pay once, verify once: re-submitting the same UTR (same or other account/order) must fail."""
+    key, order = await make_order(api, plan="p2000")
+    mail = build_email(body="received ₹29 from Rahul. UTR 777000111222")
+    assert (await api.st.payments.handle_email(mail))["result"] == "unmatched"
+    ok = await api.http.post(f"/v1/orders/{order['order_id']}/claim", json={"utr": "777000111222"}, headers=api.h(key))
+    assert ok.json()["status"] == "paid"
+    # same account, new order, same UTR
+    o2 = (await api.http.post("/v1/orders", json={"plan": "p2000"}, headers=api.h(key))).json()
+    r = await api.http.post(f"/v1/orders/{o2['order_id']}/claim", json={"utr": "777000111222"}, headers=api.h(key))
+    assert r.status_code == 409
+    # another account
+    key2, o3 = await make_order(api, owner="scammer", plan="p2000")
+    r = await api.http.post(f"/v1/orders/{o3['order_id']}/claim", json={"utr": "777000111222"}, headers=api.h(key2))
+    assert r.status_code == 409
+    # the same mail replayed does not credit again
+    assert (await api.st.payments.handle_email(build_email(body="received ₹29 UTR 777000111222")))["result"] in ("duplicate_payment", "already_processed")
+    assert (await usage(api, key2))["plan"] == "free"
