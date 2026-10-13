@@ -4,6 +4,8 @@ import hmac
 import json
 import secrets
 
+from cryptography.fernet import Fernet, InvalidToken
+
 KEY_PREFIX = "myk_"
 
 
@@ -47,3 +49,21 @@ def verify_token(secret: str, token: str) -> dict | None:
 
 def safe_equals(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode(), b.encode())
+
+
+def _fernet(secret: str) -> Fernet:
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(b"api-key-vault|" + secret.encode()).digest()))
+
+
+def seal_key(secret: str, raw: str) -> str:
+    """Encrypt an API key so the owner can be shown it again after logging in."""
+    return _fernet(secret).encrypt(raw.encode()).decode()
+
+
+def unseal_key(secret: str, sealed: str | None) -> str | None:
+    if not sealed:
+        return None
+    try:
+        return _fernet(secret).decrypt(sealed.encode()).decode()
+    except (InvalidToken, ValueError):
+        return None

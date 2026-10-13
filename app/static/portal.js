@@ -38,6 +38,15 @@
       $("expiry").textContent = k.plan_expires_at ? "Plan valid until " + when(k.plan_expires_at) : "Free plan";
     }
     renderPlans();
+    if (acc.has_key) await loadKey(acc.key_recoverable);
+    else $("keybox").hidden = true;
+  }
+
+  // Signing in again shows the same key and usage: nobody needs (or gets) a second free key.
+  async function loadKey(recoverable) {
+    if (!recoverable) { $("keybox").hidden = true; msg("Your key was made before key recovery existed. Tap 'Make a new key' once and it will always be shown here from then on.", false); return; }
+    try { var j = await api("GET", "/v1/portal/key"); $("key").textContent = j.api_key; $("keybox").hidden = false; }
+    catch (e) { msg(e.message, true); }
   }
 
   function renderPlans() {

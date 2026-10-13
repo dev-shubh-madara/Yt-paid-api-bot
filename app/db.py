@@ -119,6 +119,9 @@ class Database:
         await self._c.execute("PRAGMA synchronous=NORMAL")
         await self._c.execute("PRAGMA busy_timeout=5000")
         await self._c.executescript(SCHEMA)
+        cols = {r["name"] for r in await (await self._c.execute("PRAGMA table_info(api_keys)")).fetchall()}
+        if "key_enc" not in cols:  # keys made before key recovery existed have no sealed copy
+            await self._c.execute("ALTER TABLE api_keys ADD COLUMN key_enc TEXT")
 
     async def close(self) -> None:
         if self._c is not None:

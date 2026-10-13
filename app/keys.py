@@ -7,7 +7,7 @@ from .config import Settings
 from .db import Database
 from .errors import ApiError
 from .plans import FREE, PLANS, Plan
-from .security import hash_key, new_api_key
+from .security import hash_key, new_api_key, seal_key, unseal_key
 from .utils import Clock
 
 OWNER_RE = re.compile(r"^[\w.@:+\-]{3,64}$")
@@ -63,6 +63,7 @@ class KeyService:
         self.clock = clock
         self.settings = settings
         self._touched: dict[int, float] = {}
+        self.secret = ""  # set at start-up; encrypts the stored copy of each key
 
     # ── creation / lookup ─────────────────────────────────────────────────
     async def create(self, owner: str, name: str | None, ip: str | None) -> tuple[str, KeyRecord]:
@@ -78,9 +79,9 @@ class KeyService:
         raw = new_api_key()
         try:
             res = await self.db.execute(
-                "INSERT INTO api_keys(key_hash, key_prefix, owner, name, created_at, created_ip)"
-                " VALUES(?,?,?,?,?,?)",
-                (hash_key(raw), raw[:8], owner, name, self.clock.now_ts(), ip),
+                "INSERT INTO api_keys(key_hash, key_prefix, owner, name, created_at, created_ip, key_enc)"
+                " VALUES(?,?,?,?,?,?,?)",
+                (hash_key(raw), raw[:8], owner, name, self.clock.now_ts(), ip, self._seal(raw)),
             )
         except sqlite3.IntegrityError:
             raise ApiError(
@@ -163,11 +164,19 @@ class KeyService:
             raise ApiError(404, "key_not_found", "no such key")
         return await self.get(key_id)  # type: ignore[return-value]
 
+    def _seal(self, raw: str) -> str | None:
+        return seal_key(self.secret, raw) if self.secret else None
+
+    async def reveal(self, key_id: int) -> str | None:
+        """The owner's current key, or None for keys made before recovery existed (rotate once to enable it)."""
+        row = await self.db.fetchone("SELECT key_enc FROM api_keys WHERE id=? AND active=1", (key_id,))
+        return unseal_key(self.secret, row["key_enc"]) if row else None
+
     async def rotate(self, key_id: int) -> tuple[str, KeyRecord]:
         raw = new_api_key()
         res = await self.db.execute(
-            "UPDATE api_keys SET key_hash=?, key_prefix=? WHERE id=?",
-            (hash_key(raw), raw[:8], key_id),
+            "UPDATE api_keys SET key_hash=?, key_prefix=?, key_enc=? WHERE id=?",
+            (hash_key(raw), raw[:8], self._seal(raw), key_id),
         )
         if res.rowcount == 0:
             raise ApiError(404, "key_not_found", "no such key")

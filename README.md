@@ -46,7 +46,7 @@ Signed-in users buy plans on **`/portal`**: pick a plan, scan the UPI QR code (o
 
 ## Google login (one key per person)
 
-With `CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY` set, `POST /v1/keys` needs a Clerk session token, and users get their key at **`/portal`** ("Continue with Google"). The server verifies the token's signature, then asks Clerk who the user is and accepts only a *verified Google account on @gmail.com*. Addresses are canonicalised (`j.o.h.n+x@gmail.com` = `john@gmail.com`), so one person gets exactly one key, ever. Lost it? `/portal` → "rotate" gives a new key and kills the old one. A key the admin revoked cannot be re-created.
+With `CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY` set, `POST /v1/keys` needs a Clerk session token, and users get their key at **`/portal`** ("Continue with Google"). The server verifies the token's signature, then asks Clerk who the user is and accepts only a *verified Google account on @gmail.com*. Addresses are canonicalised (`j.o.h.n+x@gmail.com` = `john@gmail.com`), so one person gets exactly one key, ever. Signing in again at `/portal` shows the **same key and today's usage** (the key is stored encrypted with `TOKEN_SECRET`; keep that value stable). Keys made before this feature show once after a single "make a new key". Extra keys need a paid plan. A key the admin revoked cannot be re-created.
 In the Clerk dashboard: enable the Google social connection only (turn off email/password and other methods) and add your domain. Your own bot can still issue keys server-side with `X-Creation-Secret` (`KEY_CREATION_SECRET`).
 
 ## Cloudflare and network hardening

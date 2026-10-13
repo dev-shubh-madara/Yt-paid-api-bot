@@ -124,3 +124,50 @@ async def test_portal_page_has_the_shop_and_stays_csp_safe(clerk_env):
         assert "data:" in r.headers["content-security-policy"]  # the QR image
         js = (await c.get("/portal/portal.js")).text
         assert "innerHTML" not in js  # everything is written with textContent
+
+
+async def test_signing_in_again_shows_the_same_key_and_usage_not_a_new_one(clerk_env):
+    async with clerk_env() as (c, app):
+        h, key = await login(clerk_env, c, app)
+        me = (await c.get("/v1/portal/me", headers=h)).json()
+        assert me["has_key"] and me["key_recoverable"] is True
+        # a later visit (a fresh login token) gets the very same key back
+        h2 = bearer(token("user_1"))
+        r = await c.get("/v1/portal/key", headers=h2)
+        assert r.status_code == 200 and r.json()["api_key"] == key
+        assert "no-store" in r.headers["cache-control"]
+        assert (await c.get("/v1/portal/me", headers=h2)).json()["usage"]["used_today"] == 0
+        # and the key still works
+        assert (await c.get("/v1/search", params={"q": "x"}, headers={"X-API-Key": key})).status_code == 200
+
+
+async def test_one_free_key_per_google_account_even_with_dots_and_plus(clerk_env):
+    async with clerk_env() as (c, app):
+        h, _ = await login(clerk_env, c, app, "john.doe@gmail.com", "user_1")
+        again = await c.post("/v1/keys", headers=h)
+        assert again.status_code == 409 and again.json()["error"] == "key_exists"
+        clerk_env.fake.users["user_2"] = google_user("j.o.h.n.d.o.e+spam@gmail.com", "user_2")
+        other = await c.post("/v1/keys", headers=bearer(token("user_2")))
+        assert other.status_code == 409  # same real Gmail account under another login = same single key
+
+
+async def test_rotated_key_is_what_the_portal_shows_and_nobody_else_can_see_it(clerk_env):
+    async with clerk_env() as (c, app):
+        ha, old = await login(clerk_env, c, app, "alice@gmail.com", "user_a")
+        hb, _ = await login(clerk_env, c, app, "bob@gmail.com", "user_b")
+        new = (await c.post("/v1/keys/rotate", headers=ha)).json()["api_key"]
+        assert new != old
+        assert (await c.get("/v1/portal/key", headers=ha)).json()["api_key"] == new
+        assert (await c.get("/v1/portal/key", headers=hb)).json()["api_key"] != new
+        assert (await c.get("/v1/portal/key")).status_code == 401
+
+
+async def test_old_keys_without_a_sealed_copy_ask_for_one_rotation(clerk_env):
+    async with clerk_env() as (c, app):
+        h, _ = await login(clerk_env, c, app)
+        await app.state.db.execute("UPDATE api_keys SET key_enc=NULL")
+        assert (await c.get("/v1/portal/me", headers=h)).json()["key_recoverable"] is False
+        r = await c.get("/v1/portal/key", headers=h)
+        assert r.status_code == 409 and r.json()["error"] == "key_not_recoverable"
+        await c.post("/v1/keys/rotate", headers=h)
+        assert (await c.get("/v1/portal/key", headers=h)).status_code == 200

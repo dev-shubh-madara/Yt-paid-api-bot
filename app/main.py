@@ -44,6 +44,7 @@ def create_app(settings: Settings | None = None, imap_factory=None) -> FastAPI:
                 await db.execute("INSERT INTO settings(k, v) VALUES('token_secret', ?)", (secret,))
 
         keys = KeyService(db, clock, settings)
+        keys.secret = secret
         app.state.settings = settings
         app.state.db = db
         app.state.clock = clock

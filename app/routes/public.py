@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Header, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import segno
 from pydantic import BaseModel, Field
 
@@ -70,7 +70,7 @@ def _key_response(raw, rec, st):
     plan = st.keys.effective_plan(rec)
     return {
         "api_key": raw,
-        "warning": "Save this key now. It is shown only once and cannot be recovered.",
+        "warning": "Your key is saved to your account. Sign in at /portal any time to see it again.",
         "owner": rec.owner,
         "plan": plan.id,
         "daily_limit": plan.daily_limit,
@@ -197,6 +197,7 @@ async def portal_me(request: Request):
     rec = await st.keys.active_by_owner("g:" + ident.email)
     out = {"email": ident.email, "has_key": rec is not None, "payments_enabled": bool(st.settings.upi_id)}
     if rec is not None:
+        out["key_recoverable"] = await st.keys.reveal(rec.id) is not None
         plan = st.keys.effective_plan(rec)
         out["key"] = rec.public(st.clock, plan)
         out["usage"] = await st.keys.usage_info(rec)
@@ -204,6 +205,18 @@ async def portal_me(request: Request):
             "SELECT * FROM orders WHERE key_id=? ORDER BY created_at DESC LIMIT 5", (rec.id,))
         out["orders"] = [st.payments.order_view(o) for o in orders]
     return out
+
+
+@router.get("/v1/portal/key")
+async def portal_show_key(request: Request):
+    """Show the signed-in account's own key again (one key per Google account, so there is nothing new to hand out)."""
+    st = request.app.state
+    _, rec = await _portal_key(request)
+    raw = await st.keys.reveal(rec.id)
+    if raw is None:
+        raise ApiError(409, "key_not_recoverable",
+                       "This key was made before key recovery existed. Use 'Rotate key' once and it will always be shown from then on.")
+    return JSONResponse({"api_key": raw}, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/v1/portal/orders", status_code=201)
