@@ -8,3 +8,4 @@ pydantic-settings>=2.3
 tzdata
 PyJWT[crypto]>=2.8
 segno>=1.6
+bgutil-ytdlp-pot-provider==2.0.2

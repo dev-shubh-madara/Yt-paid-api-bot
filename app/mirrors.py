@@ -19,9 +19,7 @@ PIPED = [
     "https://api.piped.private.coffee",
     "https://pipedapi.leptons.xyz",
     "https://pipedapi.nosebs.ru",
-    "https://piped-api.privacy.com.de",
     "https://pipedapi.reallyaweso.me",
-    "https://api.piped.yt",
 ]
 INVIDIOUS = [
     "https://inv.nadeko.net",

@@ -65,7 +65,7 @@ On Railway/Render/Koyeb set `PROXY_HOPS=1` (and do NOT set `REQUIRE_TRUSTED_PROX
 
 ## Limitations
 
-Live streams are unsupported. Hosting IPs are often blocked by YouTube ("not a bot"). The API handles it in three steps by itself: it tries several YouTube clients (tv, web_safari, mweb, android_vr, ios), then public Piped/Invidious servers (`MIRROR_FALLBACK=true`, lists in `app/mirrors.py`). For the most reliable setup add cookies from a throwaway account: `YTDLP_COOKIES_B64` (output of `base64 -w0 cookies.txt`, works on Railway without a file) or `YTDLP_COOKIES_FILE`, or a proxy with `YTDLP_PROXY`. Keep yt-dlp updated (`pip install -U yt-dlp`).
+Live streams are unsupported. The Docker image also runs a small **PO-token generator** (bgutil, started by `start.sh`; `POT_SERVER=false` turns it off). It lets yt-dlp get past YouTube's bot check without cookies. Hosting IPs are often blocked by YouTube ("not a bot"). The API handles it in three steps by itself: it tries several YouTube clients (tv, web_safari, mweb, android_vr, ios), then public Piped/Invidious servers (`MIRROR_FALLBACK=true`, lists in `app/mirrors.py`). For the most reliable setup add cookies from a throwaway account: `YTDLP_COOKIES_B64` (output of `base64 -w0 cookies.txt`, works on Railway without a file) or `YTDLP_COOKIES_FILE`, or a proxy with `YTDLP_PROXY`. Keep yt-dlp updated (`pip install -U yt-dlp`).
 
 ## Bot integration
 

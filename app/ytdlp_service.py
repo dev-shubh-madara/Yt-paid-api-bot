@@ -84,8 +84,9 @@ def parse_list_ref(value: str) -> str | None:
     return candidate if candidate and LIST_ID_FULL_RE.match(candidate) else None
 
 
+# With the PO-token generator running (see Dockerfile), the web-style clients work first; the rest are fallbacks.
 # YouTube checks each player client differently: when one is told to sign in, the next often is not.
-PLAYER_CLIENTS = ("tv", "web_safari", "mweb", "android_vr", "ios")
+PLAYER_CLIENTS = ("mweb", "web_safari", "tv", "web", "android_vr", "ios")
 BLOCKED = ("sign in to confirm", "not a bot", "sign in", "cookies", "po token", "requested format is not available")
 
 AUDIO_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"

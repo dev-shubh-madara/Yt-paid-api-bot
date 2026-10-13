@@ -52,14 +52,14 @@ def piped_ok(req):
 async def test_next_player_client_is_tried_when_one_is_blocked(ex):
     FakeYDL.answers = {"web_safari": {"url": "https://g/x", "title": "T", "duration": 10, "ext": "m4a"}}
     si = await ex.stream_info(VID, "audio")
-    assert si.url == "https://g/x" and FakeYDL.clients_seen == ["tv", "web_safari"]
+    assert si.url == "https://g/x" and FakeYDL.clients_seen == ["mweb", "web_safari"]
 
 
 async def test_mirror_answers_when_every_client_is_blocked(ex):
     ex.mirrors = Mirrors(piped=["https://p1.test"], invidious=[], client=httpx.AsyncClient(transport=httpx.MockTransport(piped_ok)),
                          shuffle=lambda x: None)
     si = await ex.stream_info(VID, "audio")
-    assert si.url == "https://px/a" and si.title == "Pal Pal" and len(FakeYDL.clients_seen) == 5
+    assert si.url == "https://px/a" and si.title == "Pal Pal" and len(FakeYDL.clients_seen) == 6
 
 
 async def test_original_error_is_kept_when_mirrors_are_down_too(ex):
@@ -71,10 +71,10 @@ async def test_original_error_is_kept_when_mirrors_are_down_too(ex):
 
 
 async def test_private_video_does_not_try_other_clients_or_mirrors(ex):
-    FakeYDL.answers = {"tv": "ERROR: Private video"}
+    FakeYDL.answers = {"mweb": "ERROR: Private video"}
     with pytest.raises(MediaError) as e:
         await ex.stream_info(VID, "audio")
-    assert e.value.code == "video_private" and FakeYDL.clients_seen == ["tv"]
+    assert e.value.code == "video_private" and FakeYDL.clients_seen == ["mweb"]
 
 
 async def test_mirror_can_be_switched_off(tmp_path, monkeypatch):
@@ -97,3 +97,13 @@ def test_cookies_from_base64_and_text_env(tmp_path):
     e = ys.Extractor(make_settings(tmp_path / "c", ytdlp_cookies_b64="%%%not base64%%%"))
     assert e._cookie_copy is None  # bad input never stops the server from starting
     e.pool.shutdown(wait=False)
+
+
+def test_docker_image_ships_the_po_token_generator():
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    docker = (root / "Dockerfile").read_text()
+    assert "bgutil-ytdlp-pot-provider" in docker and "npx tsc" in docker and "start.sh" in docker
+    start = (root / "start.sh").read_text()
+    assert "build/main.js" in start and "--port 4416" in start and "exec uvicorn" in start
+    assert "bgutil-ytdlp-pot-provider==" in (root / "requirements.txt").read_text()
