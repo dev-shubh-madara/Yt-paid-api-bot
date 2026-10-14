@@ -1,3 +1,5 @@
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
@@ -169,3 +171,17 @@ async def youtube_unblock(request: Request):
     """Skip the cool-down and try YouTube again right now."""
     request.app.state.extractor.reset_block()
     return {"ok": True}
+
+
+@router.get("/catalog")
+async def catalog_list(request: Request):
+    return {"shards": request.app.state.catalog.shards()}
+
+
+@router.get("/catalog/{n}")
+async def catalog_download(n: int, request: Request):
+    snap = request.app.state.catalog.snapshot(n)
+    if snap is None:
+        raise ApiError(404, "no_such_shard", "No such catalog file.")
+    return FileResponse(snap, media_type="application/octet-stream", filename=f"catalog_{n:04d}.db",
+                        background=BackgroundTask(snap.unlink, missing_ok=True))

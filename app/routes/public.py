@@ -8,6 +8,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import segno
 from pydantic import BaseModel, Field
 
+from starlette.background import BackgroundTask
+
+from ..clerk_auth import canonical_gmail
 from ..deps import AuthedKey, client_ip, require_key
 from ..errors import ApiError
 from ..plans import PLANS, paid_plans
@@ -238,6 +241,32 @@ async def portal_get_order(order_id: str, request: Request):
 async def portal_claim_order(order_id: str, body: ClaimBody, request: Request):
     _, rec = await _portal_key(request)
     return _portal_order(await request.app.state.payments.claim(rec, order_id, body.utr))
+
+
+async def _developer(request: Request):
+    """Signed-in Google account that is on the DEVELOPER_EMAILS list, else None."""
+    ident = await _portal_identity(request)
+    st = request.app.state
+    allowed = {canonical_gmail(e.strip()) or e.strip().lower() for e in st.settings.developer_emails.split(",") if e.strip()}
+    return ident if ident.email in allowed else None
+
+
+@router.get("/v1/portal/developer")
+async def portal_developer(request: Request):
+    if await _developer(request) is None:
+        return {"allowed": False}
+    return {"allowed": True, "shards": request.app.state.catalog.shards()}
+
+
+@router.get("/v1/portal/developer/catalog/{n}")
+async def portal_developer_download(n: int, request: Request):
+    if await _developer(request) is None:
+        raise ApiError(403, "not_developer", "This account is not allowed here.")
+    snap = request.app.state.catalog.snapshot(n)
+    if snap is None:
+        raise ApiError(404, "no_such_shard", "No such catalog file.")
+    return FileResponse(snap, media_type="application/octet-stream", filename=f"catalog_{n:04d}.db",
+                        background=BackgroundTask(snap.unlink, missing_ok=True))
 
 
 _STATIC = Path(__file__).resolve().parent.parent / "static"

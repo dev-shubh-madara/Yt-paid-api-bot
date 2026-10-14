@@ -204,6 +204,7 @@ class Extractor:
         self._inflight: dict[object, asyncio.Future] = {}
         self._cookie_copy: str | None = None
         self.mirrors = Mirrors() if settings.mirror_fallback else None
+        self.on_tracks = None  # callback(list[dict]): the catalog remembers every song seen
         self._blocked_until = 0.0  # circuit breaker: while set, yt-dlp is skipped and mirrors answer
         self.blocked_hits = 0
         self.proxy: str = settings.ytdlp_proxy
@@ -303,6 +304,13 @@ class Extractor:
             "mirror_fallback": self.mirrors is not None,
         }
 
+    def _seen(self, tracks: list[dict]) -> None:
+        if self.on_tracks and tracks:
+            try:
+                self.pool.submit(self.on_tracks, tracks)
+            except Exception:  # pool shut down; the catalog is a bonus, never a failure
+                pass
+
     # ── yt-dlp options ────────────────────────────────────────────────────
     def _opts(self, **extra) -> dict:
         opts: dict = {
@@ -376,6 +384,7 @@ class Extractor:
             entries = await self._run(self._search_blocking, query, limit)
             tracks = [t for t in (_entry_to_track(e or {}) for e in entries) if t]
             self._searches.set(key, tracks, time.time() + self.s.search_cache_seconds)
+            self._seen(tracks)
             return tracks
 
         return await self._once(key, work)
@@ -493,6 +502,7 @@ class Extractor:
                 log.warning("served %s from a public mirror (%s)", video_id, e.code)
             si = self._to_stream_info(video_id, kind, raw)
             self._streams.set(key, si, si.expires_at)
+            self._seen([si.track()])
             return si
 
         return await self._once(key, work)
@@ -532,6 +542,7 @@ class Extractor:
         tracks = [t for t in (_entry_to_track(e or {}) for e in (info or {}).get("entries") or []) if t]
         result = {"id": list_id, "title": (info or {}).get("title") or "", "tracks": tracks[:limit]}
         self._searches.set(key, result, time.time() + self.s.search_cache_seconds)
+        self._seen(result["tracks"])
         return result
 
     # ── related songs (YouTube Mix / radio) ───────────────────────────────

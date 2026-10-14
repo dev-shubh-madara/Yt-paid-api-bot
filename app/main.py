@@ -19,6 +19,7 @@ from .payments.service import PaymentService
 from .ratelimit import SlidingWindowLimiter
 from .routes import admin, media, public
 from .utils import Clock
+from .catalog import Catalog
 from .ytdlp_service import Extractor
 
 log = logging.getLogger("ytapi")
@@ -52,6 +53,8 @@ def create_app(settings: Settings | None = None, imap_factory=None) -> FastAPI:
         app.state.keys = keys
         app.state.payments = PaymentService(db, keys, clock, settings)
         app.state.extractor = Extractor(settings)
+        app.state.catalog = Catalog(settings.data_dir)
+        app.state.extractor.on_tracks = app.state.catalog.add
         app.state.limiter = SlidingWindowLimiter()
         app.state.trusted_nets = netguard.trusted_nets(settings)
         app.state.clerk_domain = settings.clerk_domain

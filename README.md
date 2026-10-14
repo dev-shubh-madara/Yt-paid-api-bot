@@ -90,3 +90,10 @@ curl -X POST $API/admin/youtube/unblock -H "X-Admin-Token: $T"
 A residential/ISP proxy or cookies from a throwaway Google account are what actually work. After every client is
 refused, yt-dlp pauses for 90 s and public mirrors answer, so YouTube is not hammered. Never commit cookies or proxy
 credentials to git.
+
+## Song catalog and Developer mode
+Every song the API sees (search, play, playlists) is remembered as metadata only: title, artist, YouTube id, duration,
+thumbnail. They are saved in SQLite files under `/data/catalog/`, 200 songs per file; a new file starts automatically.
+Download them from the portal: sign in with a Google account listed in `DEVELOPER_EMAILS` (default
+`ragini.19854@gmail.com`) and open "Developer mode", or call `GET /admin/catalog` and `GET /admin/catalog/{n}` with the admin token.
+No audio is stored.

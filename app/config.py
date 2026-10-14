@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     anon_rate_limit_per_minute: int = 60  # per IP, for callers that send no key
     expose_docs: bool = False  # /docs, /redoc, /openapi.json
 
+    # Google accounts that may open the portal's Developer mode and download the song catalog (comma separated)
+    developer_emails: str = "ragini.19854@gmail.com"
+
     # ── Paid plans / payments ─────────────────────────────────────────────
     plan_duration_days: int = 30
     order_ttl_hours: int = 24

@@ -38,6 +38,7 @@
       $("expiry").textContent = k.plan_expires_at ? "Plan valid until " + when(k.plan_expires_at) : "Free plan";
     }
     renderPlans();
+    loadDeveloper();
     if (acc.has_key) await loadKey(acc.key_recoverable);
     else $("keybox").hidden = true;
   }
@@ -47,6 +48,37 @@
     if (!recoverable) { $("keybox").hidden = true; msg("Your key was made before key recovery existed. Tap 'Make a new key' once and it will always be shown here from then on.", false); return; }
     try { var j = await api("GET", "/v1/portal/key"); $("key").textContent = j.api_key; $("keybox").hidden = false; }
     catch (e) { msg(e.message, true); }
+  }
+
+  async function loadDeveloper() {
+    $("devsec").hidden = true;
+    try {
+      var d = await api("GET", "/v1/portal/developer");
+      if (!d.allowed) return;
+      var box = $("devfiles"); box.textContent = "";
+      if (!d.shards.length) box.textContent = "No songs saved yet. They appear after people search or play.";
+      d.shards.forEach(function (sh) {
+        var row = document.createElement("div"); row.className = "row";
+        var label = document.createElement("span");
+        label.textContent = sh.file + " · " + sh.songs + " songs" + (sh.full ? " (full)" : "");
+        var b = document.createElement("button"); b.className = "mini"; b.textContent = "Download";
+        b.onclick = function () { downloadShard(sh); };
+        row.append(label, b); box.appendChild(row);
+      });
+      $("devsec").hidden = false;
+    } catch (e) { /* not a developer, or login off: stay hidden */ }
+  }
+
+  async function downloadShard(sh) {
+    try {
+      var headers = {};
+      if (window.Clerk && window.Clerk.session) headers.Authorization = "Bearer " + (await window.Clerk.session.getToken());
+      var r = await fetch("/v1/portal/developer/catalog/" + sh.shard, { headers: headers });
+      if (!r.ok) throw new Error("Download failed (" + r.status + ")");
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(await r.blob()); a.download = sh.file;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) { msg(e.message, true); }
   }
 
   function renderPlans() {
