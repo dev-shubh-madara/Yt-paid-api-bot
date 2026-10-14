@@ -53,3 +53,7 @@ Set the bot's API URL to your link and use your API key. (Bot repo: change it th
 ## If YouTube still blocks you
 Upload cookies from a throwaway Google account (not your main one):
 `POST /admin/youtube/cookies` with your `X-Admin-Token` (see README). Status: `GET /admin/youtube`.
+
+## Easiest on Windows: double-click `start-laptop.bat`
+It creates a minimal `.env` (only a random `ADMIN_TOKEN`; payments and portal login stay off), starts everything
+and prints the public link. Docker Desktop must be running first.
