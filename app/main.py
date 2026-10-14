@@ -57,15 +57,25 @@ def create_app(settings: Settings | None = None, imap_factory=None) -> FastAPI:
         app.state.clerk_domain = settings.clerk_domain
         app.state.recent_plays = {}
         app.state.poller = None
-        app.state.http = httpx.AsyncClient(
-            follow_redirects=True,
-            trust_env=False,  # only use the proxy we are explicitly given
-            proxy=settings.ytdlp_proxy or None,  # googlevideo URLs are bound to the resolving IP
-            timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
-            limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
-        )
+        def new_client(proxy):
+            return httpx.AsyncClient(
+                follow_redirects=True,
+                trust_env=False,  # only use the proxy we are explicitly given
+                proxy=proxy or None,
+                timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
+                limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
+            )
 
-        app.state.clerk = ClerkAuth(settings, app.state.http)
+        # googlevideo URLs are bound to the resolving IP, so streaming must use the same proxy as extraction
+        app.state.http = new_client(app.state.extractor.proxy)
+        clerk_http = new_client(None)  # Clerk never needs the YouTube proxy
+
+        async def swap_stream_client():
+            old, app.state.http = app.state.http, new_client(app.state.extractor.proxy)
+            asyncio.get_running_loop().call_later(120, lambda: asyncio.ensure_future(old.aclose()))
+
+        app.state.swap_stream_client = swap_stream_client
+        app.state.clerk = ClerkAuth(settings, clerk_http)
         if settings.clerk_publishable_key and not app.state.clerk.enabled:
             log.error("Clerk is half-configured: need a valid CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY")
         if settings.require_trusted_proxy and not app.state.trusted_nets:
@@ -93,6 +103,7 @@ def create_app(settings: Settings | None = None, imap_factory=None) -> FastAPI:
                 except (asyncio.CancelledError, Exception):
                     pass
             await app.state.http.aclose()
+            await clerk_http.aclose()
             app.state.extractor.shutdown()
             await db.close()
 

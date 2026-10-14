@@ -89,6 +89,7 @@ def parse_list_ref(value: str) -> str | None:
 PLAYER_CLIENTS = ("mweb", "web_safari", "tv", "web", "android_vr", "ios")
 BLOCKED = ("sign in to confirm", "not a bot", "sign in", "cookies", "po token", "requested format is not available")
 
+BLOCK_COOLDOWN = 90  # seconds yt-dlp is skipped after every client was refused
 AUDIO_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
 VIDEO_FORMAT = (
     "best[ext=mp4][height<=720][vcodec!=none][acodec!=none]/"
@@ -159,8 +160,7 @@ def map_error(exc: Exception) -> MediaError:
         return MediaError(
             503,
             "youtube_bot_check",
-            "YouTube asked this server to prove it is not a bot. Set YTDLP_COOKIES_FILE "
-            "or YTDLP_PROXY on the API server.",
+            "YouTube is temporarily refusing this server. Please try again in a moment.",
         )
     if "private video" in low:
         return MediaError(404, "video_private", "This video is private.")
@@ -204,6 +204,11 @@ class Extractor:
         self._inflight: dict[object, asyncio.Future] = {}
         self._cookie_copy: str | None = None
         self.mirrors = Mirrors() if settings.mirror_fallback else None
+        self._blocked_until = 0.0  # circuit breaker: while set, yt-dlp is skipped and mirrors answer
+        self.blocked_hits = 0
+        self.proxy: str = settings.ytdlp_proxy
+        self._proxy_file = Path(settings.data_dir) / "proxy.txt"
+        self._load_saved_proxy()
         # yt-dlp writes cookies back on exit; work on a private copy.
         dst = Path(settings.data_dir) / "cookies.txt"
         if settings.ytdlp_cookies_file and Path(settings.ytdlp_cookies_file).is_file():
@@ -219,6 +224,84 @@ class Extractor:
                 self._cookie_copy = str(dst)
             except Exception:
                 log.exception("YTDLP_COOKIES_B64 / YTDLP_COOKIES_TEXT could not be read; continuing without cookies")
+        else:
+            # cookies uploaded earlier through /admin/youtube/cookies live on the persistent volume
+            if dst.is_file() and dst.stat().st_size:
+                self._cookie_copy = str(dst)
+
+    # ── runtime settings (set through /admin/youtube/*, kept on the data volume) ──
+    def _load_saved_proxy(self) -> None:
+        try:
+            if self._proxy_file.is_file():
+                saved = self._proxy_file.read_text(encoding="utf8").strip()
+                if saved:
+                    self.proxy = saved
+        except OSError:
+            log.exception("could not read the saved proxy")
+
+    @property
+    def cookie_path(self) -> Path:
+        return Path(self.s.data_dir) / "cookies.txt"
+
+    def set_cookies(self, text: str) -> int:
+        """Store a Netscape cookies.txt. Returns how many YouTube/Google cookies it holds."""
+        lines = [ln for ln in text.replace("\r\n", "\n").split("\n") if ln.strip()]
+        n = 0
+        for ln in lines:
+            if ln.startswith("#") and not ln.startswith("#HttpOnly_"):
+                continue
+            parts = ln.split("\t")
+            if len(parts) >= 7 and ("youtube.com" in parts[0] or "google.com" in parts[0]):
+                n += 1
+        if not n:
+            raise MediaError(422, "bad_cookies", "That is not a Netscape cookies.txt with youtube.com / google.com cookies.")
+        dst = self.cookie_path
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_suffix(".tmp")
+        tmp.write_text(text if text.startswith("#") else "# Netscape HTTP Cookie File\n" + text, encoding="utf8")
+        tmp.chmod(0o600)
+        tmp.replace(dst)
+        self._cookie_copy = str(dst)
+        self.reset_block()
+        self._streams._d.clear()
+        return n
+
+    def clear_cookies(self) -> None:
+        self._cookie_copy = None
+        self.cookie_path.unlink(missing_ok=True)
+
+    def set_proxy(self, url: str) -> None:
+        url = (url or "").strip()
+        if url and not re.match(r"^(https?|socks5h?|socks4a?)://[^\s]+$", url):
+            raise MediaError(422, "bad_proxy", "Proxy must look like http://user:pass@host:port or socks5://host:port")
+        self.proxy = url
+        if url:
+            self._proxy_file.parent.mkdir(parents=True, exist_ok=True)
+            self._proxy_file.write_text(url, encoding="utf8")
+            self._proxy_file.chmod(0o600)
+        else:
+            self._proxy_file.unlink(missing_ok=True)
+        self.reset_block()
+        self._streams._d.clear()
+
+    def reset_block(self) -> None:
+        self._blocked_until = 0.0
+
+    @property
+    def blocked_for(self) -> int:
+        return max(0, int(self._blocked_until - time.time()))
+
+    def status(self) -> dict:
+        proxy = None
+        if self.proxy:
+            u = urlparse(self.proxy)
+            proxy = f"{u.scheme}://{'***@' if u.username else ''}{u.hostname}{':' + str(u.port) if u.port else ''}"
+        return {
+            "cookies_loaded": bool(self._cookie_copy),
+            "proxy": proxy,
+            "youtube_blocked_for_seconds": self.blocked_for,
+            "mirror_fallback": self.mirrors is not None,
+        }
 
     # ── yt-dlp options ────────────────────────────────────────────────────
     def _opts(self, **extra) -> dict:
@@ -235,8 +318,8 @@ class Extractor:
         }
         if self._cookie_copy:
             opts["cookiefile"] = self._cookie_copy
-        if self.s.ytdlp_proxy:
-            opts["proxy"] = self.s.ytdlp_proxy
+        if self.proxy:
+            opts["proxy"] = self.proxy
         if self.s.player_client_list:
             opts["extractor_args"] = {"youtube": {"player_client": self.s.player_client_list}}
         opts.update(extra)
@@ -383,8 +466,17 @@ class Extractor:
 
         async def work():
             try:
+                if self._blocked_until > time.time() and self.mirrors is not None:
+                    # YouTube just refused every client: do not hammer it, let the mirrors answer
+                    raise MediaError(503, "youtube_bot_check", "YouTube is temporarily refusing this server.")
                 raw = await self._run(self._stream_blocking, video_id, kind)
+                self._blocked_until = 0.0
             except MediaError as e:
+                if e.code == "youtube_bot_check" and self._blocked_until <= time.time():
+                    self._blocked_until = time.time() + BLOCK_COOLDOWN
+                    self.blocked_hits += 1
+                    log.warning("YouTube is blocking this host's IP. Add cookies or a residential proxy via "
+                                "POST /admin/youtube/cookies or /admin/youtube/proxy. Pausing yt-dlp for %ss.", BLOCK_COOLDOWN)
                 # YouTube is blocking this host: let the public mirrors answer instead of failing the song
                 if e.code not in ("youtube_bot_check", "extraction_failed", "youtube_rate_limited", "extraction_timeout") or self.mirrors is None:
                     raise

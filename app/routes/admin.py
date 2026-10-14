@@ -13,6 +13,14 @@ class PlanBody(BaseModel):
     days: int | None = Field(None, ge=1, le=3650)
 
 
+class CookiesBody(BaseModel):
+    cookies: str = Field(..., min_length=20, max_length=2_000_000)
+
+
+class ProxyBody(BaseModel):
+    proxy: str = Field("", max_length=500)  # empty clears it
+
+
 class ParseBody(BaseModel):
     subject: str = ""
     text: str
@@ -126,3 +134,38 @@ async def parse_email(body: ParseBody, request: Request):
         "payer": p.payer,
         "would_count_as_payment": p.direction == "in" and p.amount_paise is not None,
     }
+
+
+@router.get("/youtube")
+async def youtube_status(request: Request):
+    """Is the host blocked, are cookies / a proxy set. Secrets are never shown."""
+    return request.app.state.extractor.status()
+
+
+@router.post("/youtube/cookies")
+async def youtube_set_cookies(body: CookiesBody, request: Request):
+    """Paste a Netscape cookies.txt from a throwaway Google account. Saved on the data volume, applied at once."""
+    n = request.app.state.extractor.set_cookies(body.cookies)
+    return {"ok": True, "cookies": n}
+
+
+@router.delete("/youtube/cookies")
+async def youtube_clear_cookies(request: Request):
+    request.app.state.extractor.clear_cookies()
+    return {"ok": True}
+
+
+@router.post("/youtube/proxy")
+async def youtube_set_proxy(body: ProxyBody, request: Request):
+    """Set (or clear, with an empty string) the proxy used for both extraction and streaming."""
+    st = request.app.state
+    st.extractor.set_proxy(body.proxy)
+    await st.swap_stream_client()
+    return {"ok": True, **st.extractor.status()}
+
+
+@router.post("/youtube/unblock")
+async def youtube_unblock(request: Request):
+    """Skip the cool-down and try YouTube again right now."""
+    request.app.state.extractor.reset_block()
+    return {"ok": True}

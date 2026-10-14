@@ -107,3 +107,42 @@ def test_docker_image_ships_the_po_token_generator():
     start = (root / "start.sh").read_text()
     assert "build/main.js" in start and "--port 4416" in start and "exec uvicorn" in start
     assert "bgutil-ytdlp-pot-provider==" in (root / "requirements.txt").read_text()
+
+
+async def test_breaker_skips_ytdlp_after_block_and_probes_again(ex, monkeypatch):
+    ex.mirrors = Mirrors(piped=["https://p1.test"], invidious=[], client=httpx.AsyncClient(transport=httpx.MockTransport(piped_ok)),
+                         shuffle=lambda x: None)
+    await ex.stream_info(VID, "audio")
+    first = len(FakeYDL.clients_seen)
+    assert first == 6 and ex.blocked_for > 0
+    await ex.stream_info("aaaaaaaaaaa", "audio")
+    assert len(FakeYDL.clients_seen) == first  # yt-dlp not touched during the cool-down
+    ex._blocked_until = 0
+    FakeYDL.answers = {"mweb": {"url": "https://g/x", "title": "T", "duration": 10, "ext": "m4a"}}
+    await ex.stream_info("bbbbbbbbbbb", "audio")
+    assert ex.blocked_for == 0
+
+
+async def test_user_message_has_no_operator_instructions(ex):
+    ex.mirrors = None
+    with pytest.raises(MediaError) as e:
+        await ex.stream_info(VID, "audio")
+    assert "YTDLP" not in e.value.message and e.value.code == "youtube_bot_check"
+
+
+def test_cookies_and_proxy_persist_without_env(tmp_path):
+    e = ys.Extractor(make_settings(tmp_path))
+    with pytest.raises(MediaError):
+        e.set_cookies("garbage that is not cookies at all")
+    assert e.set_cookies("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n") == 1
+    e.set_proxy("http://u:p@1.2.3.4:8080")
+    with pytest.raises(MediaError):
+        e.set_proxy("ftp://nope")
+    e2 = ys.Extractor(make_settings(tmp_path))  # a restart
+    o = e2._opts()
+    assert o["cookiefile"].endswith("cookies.txt") and o["proxy"] == "http://u:p@1.2.3.4:8080"
+    assert e2.status()["proxy"] == "http://***@1.2.3.4:8080" and "p@" not in str(e2.status())
+    e2.set_proxy("")
+    e2.clear_cookies()
+    assert "proxy" not in e2._opts() and "cookiefile" not in e2._opts()
+    e.pool.shutdown(wait=False); e2.pool.shutdown(wait=False)

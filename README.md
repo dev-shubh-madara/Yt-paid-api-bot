@@ -74,3 +74,19 @@ Copy `bot_client/Youtube.py` to `MADARAMUSIC/platforms/Youtube.py` in the bot an
 ## Tests
 
 `pip install -r requirements-dev.txt && pytest`
+
+## YouTube blocks the host IP (Railway etc.) — no env vars needed
+
+Datacenter IPs are often refused by YouTube ("confirm you're not a bot"). Fix it at runtime, with your admin token
+(needs a volume mounted at `/data` so it survives redeploys):
+
+```
+curl -X POST $API/admin/youtube/proxy   -H "X-Admin-Token: $T" -H "content-type: application/json" -d '{"proxy":"http://user:pass@host:port"}'
+curl -X POST $API/admin/youtube/cookies -H "X-Admin-Token: $T" -H "content-type: application/json" -d "{\"cookies\": $(python3 -c 'import json,sys;print(json.dumps(open("cookies.txt").read()))')}"
+curl $API/admin/youtube -H "X-Admin-Token: $T"      # status (proxy masked)
+curl -X POST $API/admin/youtube/unblock -H "X-Admin-Token: $T"
+```
+
+A residential/ISP proxy or cookies from a throwaway Google account are what actually work. After every client is
+refused, yt-dlp pauses for 90 s and public mirrors answer, so YouTube is not hammered. Never commit cookies or proxy
+credentials to git.
