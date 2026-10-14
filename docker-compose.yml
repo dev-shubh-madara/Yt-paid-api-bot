@@ -22,5 +22,14 @@ services:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}
     depends_on: [api]
     restart: unless-stopped
+
+  # Free temporary link, no domain or account needed (the URL changes on every restart; see LAPTOP_SETUP.md).
+  # Start with:  docker compose --profile quick up -d   then:  docker compose logs cloudflared-quick
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    profiles: ["quick"]
+    command: tunnel --no-autoupdate --url http://api:8000
+    depends_on: [api]
+    restart: unless-stopped
 volumes:
   ytapi-data:
