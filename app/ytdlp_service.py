@@ -87,7 +87,7 @@ def parse_list_ref(value: str) -> str | None:
 # With the PO-token generator running (see Dockerfile), the web-style clients work first; the rest are fallbacks.
 # YouTube checks each player client differently: when one is told to sign in, the next often is not.
 PLAYER_CLIENTS = ("mweb", "web_safari", "tv", "web", "android_vr", "ios")
-BLOCKED = ("sign in to confirm", "not a bot", "sign in", "cookies", "po token", "requested format is not available")
+BLOCKED = ("sign in to confirm", "not a bot", "sign in", "cookies", "po token", "requested format is not available", "needs to be reloaded")
 
 BLOCK_COOLDOWN = 90  # seconds yt-dlp is skipped after every client was refused
 AUDIO_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
@@ -390,8 +390,15 @@ class Extractor:
         for client in clients:
             args = {"extractor_args": {"youtube": {"player_client": client}}}
             try:
-                with yt_dlp.YoutubeDL(self._opts(format=fmt, **args)) as ydl:
-                    info = ydl.extract_info(url, download=False)
+                try:
+                    with yt_dlp.YoutubeDL(self._opts(format=fmt, **args)) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                except Exception as e1:
+                    if "needs to be reloaded" not in str(e1).lower():
+                        raise
+                    time.sleep(0.5)  # YouTube's transient "reload the page": same client once more
+                    with yt_dlp.YoutubeDL(self._opts(format=fmt, **args)) as ydl:
+                        info = ydl.extract_info(url, download=False)
                 if info and (info.get("url") or info.get("formats") or info.get("requested_formats")):
                     return info
             except Exception as e:
